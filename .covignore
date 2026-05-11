@@ -1,0 +1,18 @@
+# Coverage exclusions — regex patterns matched against lines of the
+# raw `go test -coverprofile` output, applied before the 100% gate
+# by covgate (https://github.com/kfet/covgate).
+#
+# Convention: file-level patterns only. No line numbers, no
+# per-function regexes — both rot on any nearby edit.
+
+# Per-feature `<feature>_must.go` files. Each holds the `mustX` helpers
+# for the feature in `<feature>.go`: tiny wrappers that panic on
+# structurally-unreachable error paths. Keeping them in a sibling file
+# means the helper sits next to the code that uses it, the name signals
+# intent (`mustStdoutPipe`, …), and the file-level coverage exclusion
+# stays narrow and meaningful.
+_must\.go:
+
+# Windows-only build of the procgroup helper: empty function body,
+# can't be covered by the macOS/Linux CI runners.
+^github.com/kfet/pinexec/procgroup_windows\.go:
