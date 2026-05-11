@@ -14,29 +14,6 @@ import (
 	"sync"
 )
 
-// Options configures a single [Execute] call.
-//
-// The zero value is valid: no streaming callback, default truncation,
-// no color env injection.
-type Options struct {
-	// OnChunk, when non-nil, is invoked with each raw output chunk as it
-	// arrives. ANSI escape sequences are preserved so the chunks are
-	// suitable for live display. The chunk is the combined stdout+stderr
-	// stream of the running command; ordering reflects arrival order, not
-	// stream of origin.
-	//
-	// When OnChunk is non-nil, color-forcing environment variables
-	// (see [AppendColorEnv]) are injected so tools that gate ANSI output
-	// on TTY detection still emit colors.
-	//
-	// OnChunk is called serially from a single goroutine and may block
-	// briefly without affecting correctness, but a slow callback will
-	// back-pressure the underlying read loop and may cause the child
-	// process to block on output. Keep it fast; copy to a channel if
-	// you need to do real work.
-	OnChunk func(chunk string)
-}
-
 // Result holds the outcome of an [Execute] call.
 type Result struct {
 	// Output is the combined stdout+stderr of the command, with ANSI
@@ -93,8 +70,13 @@ func sanitizeBinaryOutput(s string) string {
 // from [exec.CommandContext] is used.
 //
 // Output is sanitized (binary bytes replaced, '\r' stripped) and
-// ANSI-stripped before being stored in [Result.Output]. Live raw output
-// (ANSI preserved) is streamed via [Options.OnChunk] when set.
+// ANSI-stripped before being stored in [Result.Output]. When onChunk is
+// non-nil, it is invoked with each raw output chunk as it arrives (ANSI
+// preserved) for live display, and color-forcing environment variables
+// (see [AppendColorEnv]) are injected so CLIs that gate ANSI output on
+// TTY detection still emit colors. onChunk is called serially from a
+// single goroutine; a slow callback back-pressures the read loop and
+// may block the child process — keep it fast.
 //
 // If total output exceeds [DefaultMaxBytes], the full sanitized output
 // is also streamed to a temp file whose path is returned in
@@ -104,11 +86,11 @@ func sanitizeBinaryOutput(s string) string {
 // final [Result.Output].
 //
 // Execute returns a non-nil error only if the child process could not
-// be started or its pipes could not be opened. A non-zero exit status
-// is reported via [Result.ExitCode], not as an error.
+// be started. A non-zero exit status is reported via [Result.ExitCode],
+// not as an error.
 //
 // Execute is safe to call concurrently.
-func Execute(ctx context.Context, command string, opts *Options) (Result, error) {
+func Execute(ctx context.Context, command string, onChunk func(chunk string)) (Result, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
@@ -122,7 +104,7 @@ func Execute(ctx context.Context, command string, opts *Options) (Result, error)
 
 	// When streaming for display, inject env vars that tell CLI tools to
 	// emit ANSI colors even when stdout is not a TTY.
-	if opts != nil && opts.OnChunk != nil {
+	if onChunk != nil {
 		cmd.Env = AppendColorEnv(cmd.Env)
 	}
 
@@ -142,11 +124,7 @@ func Execute(ctx context.Context, command string, opts *Options) (Result, error)
 		totalBytes   int
 		tempFilePath string
 		tempFile     *os.File
-		onChunk      func(string)
 	)
-	if opts != nil {
-		onChunk = opts.OnChunk
-	}
 
 	handleData := func(data []byte) {
 		mu.Lock()

@@ -8,7 +8,7 @@ Guidance for AI agents working on `pinexec`.
 with cancellation, output sanitization, and live streaming. Building
 blocks:
 
-- `Execute` / `Options` / `Result` — the headline API (`exec.go`)
+- `Execute` / `Result` — the headline API (`exec.go`)
 - Process-group setup — `setProcGroup` (`procgroup_unix.go`,
   `procgroup_windows.go`)
 - ANSI handling — `StripAnsi`, `AppendColorEnv` (`ansi.go`)

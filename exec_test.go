@@ -62,10 +62,8 @@ func TestExecute_Cancellation(t *testing.T) {
 
 func TestExecute_OnChunk(t *testing.T) {
 	var chunks []string
-	opts := &Options{
-		OnChunk: func(chunk string) {
-			chunks = append(chunks, chunk)
-		},
+	opts := func(chunk string) {
+		chunks = append(chunks, chunk)
 	}
 
 	ctx := context.Background()
@@ -87,10 +85,8 @@ func TestExecute_OnChunk(t *testing.T) {
 
 func TestExecute_OnChunkPreservesANSI(t *testing.T) {
 	var chunks []string
-	opts := &Options{
-		OnChunk: func(chunk string) {
-			chunks = append(chunks, chunk)
-		},
+	opts := func(chunk string) {
+		chunks = append(chunks, chunk)
 	}
 
 	ctx := context.Background()
@@ -122,10 +118,8 @@ func TestExecute_OnChunkPreservesANSI(t *testing.T) {
 
 func TestExecute_OnChunkInjectsColorEnv(t *testing.T) {
 	var chunks []string
-	opts := &Options{
-		OnChunk: func(chunk string) {
-			chunks = append(chunks, chunk)
-		},
+	opts := func(chunk string) {
+		chunks = append(chunks, chunk)
 	}
 
 	ctx := context.Background()
@@ -153,10 +147,8 @@ func TestExecute_OnChunkRespectsExistingColorEnv(t *testing.T) {
 	t.Setenv("FORCE_COLOR", "0")
 
 	var chunks []string
-	opts := &Options{
-		OnChunk: func(chunk string) {
-			chunks = append(chunks, chunk)
-		},
+	opts := func(chunk string) {
+		chunks = append(chunks, chunk)
 	}
 
 	ctx := context.Background()

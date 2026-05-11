@@ -28,10 +28,8 @@ func ExampleExecute() {
 func ExampleExecute_streaming() {
 	ctx := context.Background()
 	var live strings.Builder
-	res, _ := pinexec.Execute(ctx, "echo hi", &pinexec.Options{
-		OnChunk: func(chunk string) {
-			live.WriteString(chunk)
-		},
+	res, _ := pinexec.Execute(ctx, "echo hi", func(chunk string) {
+		live.WriteString(chunk)
 	})
 	fmt.Println("live:", strings.TrimSpace(live.String()))
 	fmt.Println("stored:", strings.TrimSpace(res.Output))

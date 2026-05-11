@@ -27,8 +27,8 @@ half-dozen chores every time:
 `pinexec` does all of that behind one call:
 
 ```go
-res, err := pinexec.Execute(ctx, "make test", &pinexec.Options{
-    OnChunk: func(s string) { ui.Write(s) }, // live, ANSI preserved
+res, err := pinexec.Execute(ctx, "make test", func(s string) {
+    ui.Write(s) // live, ANSI preserved
 })
 // res.Output     — ANSI-stripped, sanitized, tail-truncated
 // res.ExitCode   — 0 on success, -1 on cancel, …
