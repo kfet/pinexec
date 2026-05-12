@@ -2,14 +2,11 @@ package pinexec
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -18,8 +15,8 @@ import (
 type Result struct {
 	// Output is the combined stdout+stderr of the command, with ANSI
 	// escape sequences stripped, binary bytes replaced with '?', and
-	// '\r' removed. If the raw output exceeded the truncation limits
-	// (see [TruncationOptions]) only the tail is retained and
+	// '\r' removed. If the raw output exceeded [DefaultMaxBytes] /
+	// [DefaultMaxLines] only the tail is retained and
 	// [Result.Truncated] is true.
 	Output string
 
@@ -61,7 +58,9 @@ func sanitizeBinaryOutput(s string) string {
 }
 
 // Execute runs command via $SHELL -c (falling back to /bin/sh), capturing
-// combined stdout+stderr.
+// combined stdout+stderr. The two streams are merged in arrival order;
+// their relative ordering reflects when bytes arrived, not which stream
+// produced them.
 //
 // The command runs in its own process group on Unix so cancelling ctx
 // kills the entire group, not just the shell — this is important for
@@ -118,13 +117,25 @@ func Execute(ctx context.Context, command string, onChunk func(chunk string)) (R
 	maxOutputBytes := DefaultMaxBytes * 2
 
 	var (
-		mu           sync.Mutex
-		outputChunks []string
-		outputBytes  int
-		totalBytes   int
-		tempFilePath string
-		tempFile     *os.File
+		mu            sync.Mutex
+		outputChunks  []string
+		outputBytes   int
+		totalBytes    int
+		tempFilePath  string
+		tempFile      *os.File
+		triedTempFile bool
 	)
+	// Ensure the temp file is closed even if a user-supplied onChunk
+	// panics and unwinds through wg.Wait.
+	defer func() {
+		mu.Lock()
+		f := tempFile
+		tempFile = nil
+		mu.Unlock()
+		if f != nil {
+			_ = f.Close()
+		}
+	}()
 
 	handleData := func(data []byte) {
 		mu.Lock()
@@ -145,23 +156,17 @@ func Execute(ctx context.Context, command string, onChunk func(chunk string)) (R
 		text := StripAnsi(rawText)
 
 		// Start temp file once total output crosses the threshold.
-		if totalBytes > DefaultMaxBytes && tempFile == nil {
-			id := make([]byte, 8)
-			// crypto/rand.Read never fails in practice on supported
-			// platforms; on the off chance it does we accept an
-			// all-zero id rather than aborting the run.
-			_, _ = rand.Read(id)
-			tempFilePath = filepath.Join(os.TempDir(), "pinexec-"+hex.EncodeToString(id)+".log")
-			if f, err := os.Create(tempFilePath); err == nil {
+		// Attempt creation at most once: if it fails (e.g. TMPDIR is
+		// not writable) there's no point retrying for every chunk.
+		if totalBytes > DefaultMaxBytes && tempFile == nil && !triedTempFile {
+			triedTempFile = true
+			if f, err := os.CreateTemp("", "pinexec-*.log"); err == nil {
 				tempFile = f
+				tempFilePath = f.Name()
 				// Flush already-buffered chunks to the temp file.
 				for _, chunk := range outputChunks {
 					_, _ = tempFile.WriteString(chunk)
 				}
-			} else {
-				// Couldn't create the file; surface nothing rather
-				// than crashing the run.
-				tempFilePath = ""
 			}
 		}
 
@@ -199,9 +204,6 @@ func Execute(ctx context.Context, command string, onChunk func(chunk string)) (R
 	wg.Wait()
 
 	waitErr := cmd.Wait()
-	if tempFile != nil {
-		_ = tempFile.Close()
-	}
 
 	mu.Lock()
 	fullOutput := strings.Join(outputChunks, "")

@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-05-11
+
+### Changed
+
+- `Execute` now uses [`os.CreateTemp`] for the >50KB output spill
+  instead of hand-rolled `crypto/rand` + `os.Create`. Atomic uniqueness,
+  no concurrent-collision edge case, fewer imports.
+- `Execute` no longer retries temp-file creation on every chunk after
+  the first failure. With a misconfigured `TMPDIR`, previous versions
+  would re-attempt `os.Create` on every read; v0.0.3 attempts exactly
+  once.
+- `Execute` `defer`s the temp-file `Close` immediately after creation,
+  so the file is closed and not leaked even if a user-supplied
+  `onChunk` callback panics and unwinds through the read loop.
+
+### Fixed
+
+- Doc on `Result.Output` referenced `TruncationOptions` as the knob for
+  truncation limits, but `Execute` uses hardcoded `DefaultMaxBytes` /
+  `DefaultMaxLines`. Doc now points at the actual constants.
+- `Execute`'s doc now notes that stdout and stderr are merged in
+  *arrival* order; their relative ordering does not reflect which
+  stream produced each chunk.
+
 ## [0.0.2] - 2026-05-10
 
 ### Changed (breaking)
