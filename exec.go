@@ -1,14 +1,13 @@
 package pinexec
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 )
 
 // Result holds the outcome of an [Execute] call.
@@ -55,6 +54,63 @@ func sanitizeBinaryOutput(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// outputSink is the io.Writer assigned to both cmd.Stdout and
+// cmd.Stderr. os/exec serializes writes when Stdout == Stderr (and the
+// writer type is comparable with ==), so Write is called from one
+// goroutine at a time and needs no locking of its own.
+type outputSink struct {
+	onChunk       func(chunk string)
+	buf           bytes.Buffer
+	totalBytes    int
+	tempFile      *os.File
+	tempFilePath  string
+	triedTempFile bool
+}
+
+func (s *outputSink) Write(data []byte) (int, error) {
+	n := len(data)
+	s.totalBytes += n
+
+	// Sanitize binary but preserve ANSI for display.
+	rawText := sanitizeBinaryOutput(string(data))
+	rawText = strings.ReplaceAll(rawText, "\r", "")
+
+	// Stream raw (ANSI-preserved) output to display callback.
+	if s.onChunk != nil {
+		s.onChunk(rawText)
+	}
+
+	// Strip ANSI for stored output.
+	text := StripAnsi(rawText)
+
+	// Start temp file once total output crosses the threshold.
+	// Attempt creation at most once: if it fails (e.g. TMPDIR is not
+	// writable) there's no point retrying for every chunk.
+	if s.totalBytes > DefaultMaxBytes && s.tempFile == nil && !s.triedTempFile {
+		s.triedTempFile = true
+		if f, err := os.CreateTemp("", "pinexec-*.log"); err == nil {
+			s.tempFile = f
+			s.tempFilePath = f.Name()
+			// Flush already-buffered output to the temp file.
+			_, _ = s.tempFile.Write(s.buf.Bytes())
+		}
+	}
+
+	if s.tempFile != nil {
+		_, _ = s.tempFile.WriteString(text)
+	}
+
+	s.buf.WriteString(text)
+	// Keep a rolling window of recent output. The window granularity
+	// is coarse (drop the front half when we exceed 2× the limit) —
+	// TruncateTail trims to the precise byte/line budget at the end.
+	if s.buf.Len() > DefaultMaxBytes*2 {
+		s.buf.Next(s.buf.Len() / 2)
+	}
+
+	return n, nil
 }
 
 // Execute runs command via $SHELL -c (falling back to /bin/sh), capturing
@@ -107,108 +163,28 @@ func Execute(ctx context.Context, command string, onChunk func(chunk string)) (R
 		cmd.Env = AppendColorEnv(cmd.Env)
 	}
 
-	stdoutPipe := mustStdoutPipe(cmd)
-	stderrPipe := mustStderrPipe(cmd)
+	sink := &outputSink{onChunk: onChunk}
+	// Sharing one writer between Stdout and Stderr makes os/exec
+	// serialize writes through an internal mutex, so sink.Write is
+	// called from one goroutine at a time.
+	cmd.Stdout = sink
+	cmd.Stderr = sink
+	// Close the temp file on return so its descriptor isn't leaked.
+	defer func() {
+		if sink.tempFile != nil {
+			_ = sink.tempFile.Close()
+		}
+	}()
 
 	if err := cmd.Start(); err != nil {
 		return Result{}, fmt.Errorf("start command: %w", err)
 	}
 
-	maxOutputBytes := DefaultMaxBytes * 2
-
-	var (
-		mu            sync.Mutex
-		outputChunks  []string
-		outputBytes   int
-		totalBytes    int
-		tempFilePath  string
-		tempFile      *os.File
-		triedTempFile bool
-	)
-	// Ensure the temp file is closed even if a user-supplied onChunk
-	// panics and unwinds through wg.Wait.
-	defer func() {
-		mu.Lock()
-		f := tempFile
-		tempFile = nil
-		mu.Unlock()
-		if f != nil {
-			_ = f.Close()
-		}
-	}()
-
-	handleData := func(data []byte) {
-		mu.Lock()
-		defer mu.Unlock()
-
-		totalBytes += len(data)
-
-		// Sanitize binary but preserve ANSI for display.
-		rawText := sanitizeBinaryOutput(string(data))
-		rawText = strings.ReplaceAll(rawText, "\r", "")
-
-		// Stream raw (ANSI-preserved) output to display callback.
-		if onChunk != nil {
-			onChunk(rawText)
-		}
-
-		// Strip ANSI for stored output.
-		text := StripAnsi(rawText)
-
-		// Start temp file once total output crosses the threshold.
-		// Attempt creation at most once: if it fails (e.g. TMPDIR is
-		// not writable) there's no point retrying for every chunk.
-		if totalBytes > DefaultMaxBytes && tempFile == nil && !triedTempFile {
-			triedTempFile = true
-			if f, err := os.CreateTemp("", "pinexec-*.log"); err == nil {
-				tempFile = f
-				tempFilePath = f.Name()
-				// Flush already-buffered chunks to the temp file.
-				for _, chunk := range outputChunks {
-					_, _ = tempFile.WriteString(chunk)
-				}
-			}
-		}
-
-		if tempFile != nil {
-			_, _ = tempFile.WriteString(text)
-		}
-
-		// Keep a rolling window of recent chunks for in-memory output.
-		outputChunks = append(outputChunks, text)
-		outputBytes += len(text)
-		for outputBytes > maxOutputBytes && len(outputChunks) > 1 {
-			removed := outputChunks[0]
-			outputChunks = outputChunks[1:]
-			outputBytes -= len(removed)
-		}
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	readStream := func(r io.Reader) {
-		defer wg.Done()
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := r.Read(buf)
-			if n > 0 {
-				handleData(buf[:n])
-			}
-			if readErr != nil {
-				return
-			}
-		}
-	}
-	go readStream(stdoutPipe)
-	go readStream(stderrPipe)
-	wg.Wait()
-
+	// cmd.Wait joins the os/exec-managed copier goroutines that feed
+	// sink, so once it returns sink is no longer being written to.
 	waitErr := cmd.Wait()
 
-	mu.Lock()
-	fullOutput := strings.Join(outputChunks, "")
-	mu.Unlock()
-
+	fullOutput := sink.buf.String()
 	truncationResult := TruncateTail(fullOutput, TruncationOptions{})
 	cancelled := ctx.Err() != nil
 
@@ -234,6 +210,6 @@ func Execute(ctx context.Context, command string, onChunk func(chunk string)) (R
 		ExitCode:       exitCode,
 		Cancelled:      cancelled,
 		Truncated:      truncationResult.Truncated,
-		FullOutputPath: tempFilePath,
+		FullOutputPath: sink.tempFilePath,
 	}, nil
 }

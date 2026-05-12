@@ -51,9 +51,4 @@ from v0.1.0 onward. Renames or signature changes need a major bump.
 ## Coverage exemptions
 
 `procgroup_windows.go` is excluded from the coverage gate via
-`.covignore` — it can't be exercised on the macOS/Linux CI runners. The
-same coverage line applies to the `_` discard error paths in `exec.go`:
-if a CSPRNG read, temp-file create, or temp-file write fails, pinexec
-proceeds with degraded behaviour (no temp-file spill, no buffered
-flush) rather than aborting the run. These are structurally hard to
-exercise in tests; the file-level guard is in `.covignore`.
+`.covignore` — it can't be exercised on the macOS/Linux CI runners.

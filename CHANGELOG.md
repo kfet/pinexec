@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: simplified the `Execute` implementation. Manual
+  stdout/stderr pipe plumbing, the reader goroutines, the
+  `sync.WaitGroup`, and the serializing mutex are gone — a single
+  `io.Writer` is now assigned to both `cmd.Stdout` and `cmd.Stderr` and
+  `os/exec` serializes writes for us. The rolling output window is now
+  a `bytes.Buffer` trimmed in halves instead of a per-chunk ring. No
+  public API change.
+
 ## [0.0.3] - 2026-05-11
 
 ### Changed
