@@ -1,9 +1,12 @@
 # pinexec
 
+[![CI](https://github.com/kfet/pinexec/actions/workflows/test.yml/badge.svg)](https://github.com/kfet/pinexec/actions/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/kfet/pinexec.svg)](https://pkg.go.dev/github.com/kfet/pinexec)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kfet/pinexec)](https://goreportcard.com/report/github.com/kfet/pinexec)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A small, dependency-free Go package for running shell commands with
 cancellation, output sanitization, and live streaming.
-
-[![pkg.go.dev](https://pkg.go.dev/badge/github.com/kfet/pinexec.svg)](https://pkg.go.dev/github.com/kfet/pinexec)
 
 ## Why
 
