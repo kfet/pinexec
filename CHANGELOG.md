@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (toolchain):** minimum Go is now **1.24** (was 1.21). Needed
+  so the coverage gate can be pinned as a `tool` directive in `go.mod`
+  (`tool` directives landed in Go 1.24). The library itself remains
+  stdlib-only with zero runtime dependencies.
+
 ## [0.0.4] - 2026-05-12
 
 ### Changed

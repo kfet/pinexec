@@ -46,7 +46,7 @@ res, err := pinexec.Execute(ctx, "make test", func(s string) {
 go get github.com/kfet/pinexec
 ```
 
-Requires Go 1.21+. Zero external dependencies.
+Requires Go 1.24+. Zero external dependencies.
 
 ## Scope
 

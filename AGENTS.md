@@ -26,7 +26,7 @@ codebase.
 
 - **Stdlib only.** No third-party deps. Ever. If you reach for one, stop
   and ask first.
-- **Go 1.21+.** Don't use language features newer than that without a
+- **Go 1.24+.** Don't use language features newer than that without a
   real need; bumping the minimum cuts users.
 - **No global state.** No `init()` registries. No package-level
   mutables.
